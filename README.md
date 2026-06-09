@@ -13,6 +13,7 @@ Servidor de e-mail self-hosted com suporte a multi-dominio, webmail, anti-spam, 
 | `restore.sh` | Restauracao a partir de arquivo local ou S3 |
 | `install-cron.sh` | Instala backup automatico via cron |
 | `backup.env` | Variaveis de ambiente do backup (criado pelo install-cron.sh) |
+| `.env.example` | Exemplo de variaveis de ambiente para o deploy |
 
 ## Quick start
 
@@ -35,3 +36,4 @@ docker compose exec admin flask mailu admin admin seudominio.com SENHA
 | [Backup](docs/05-backup.md) | Backup manual, automatico (cron) e restauracao |
 | [Custos](docs/06-custos.md) | Estimativa de custos AWS (SES + S3) |
 | [Troubleshooting](docs/07-troubleshooting.md) | Problemas comuns e solucoes |
+| [Easypanel](docs/08-easypanel.md) | Deploy completo no Easypanel passo a passo |
