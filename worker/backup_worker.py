@@ -2,13 +2,15 @@
 Mailu Backup Worker
 
 Runs as a container inside the Mailu stack.
-Backs up Docker volumes and uploads to S3 on a configurable schedule.
+Backs up mounted volumes and PostgreSQL database, uploads to S3.
 
 Environment variables:
-    BACKUP_SCHEDULE     - Cron-like time to run (default: "02:00")
+    BACKUP_SCHEDULE     - Time to run daily backup (default: "02:00")
     BACKUP_DIR          - Local backup directory (default: /backups)
     BACKUP_RETENTION    - Days to keep local backups (default: 30)
-    COMPOSE_PROJECT     - Docker compose project name (default: auto-detect)
+    DB_HOST             - PostgreSQL host (default: database)
+    DB_NAME             - PostgreSQL database name (default: mailu)
+    DB_USER             - PostgreSQL user (default: mailu)
     S3_BUCKET           - S3 bucket name (empty = skip S3)
     S3_PREFIX           - S3 key prefix (default: mailu-backups)
     S3_STORAGE_CLASS    - S3 storage class (default: STANDARD_IA)
@@ -20,7 +22,6 @@ Environment variables:
     RUN_ON_STARTUP      - Run backup immediately on start (default: false)
 """
 
-import gzip
 import logging
 import os
 import shutil
@@ -42,7 +43,12 @@ log = logging.getLogger("backup-worker")
 BACKUP_DIR = Path(os.getenv("BACKUP_DIR", "/backups"))
 BACKUP_SCHEDULE = os.getenv("BACKUP_SCHEDULE", "02:00")
 BACKUP_RETENTION = int(os.getenv("BACKUP_RETENTION", "30"))
-COMPOSE_PROJECT = os.getenv("COMPOSE_PROJECT", "")
+
+SOURCES_DIR = Path("/sources")
+
+DB_HOST = os.getenv("DB_HOST", "database")
+DB_NAME = os.getenv("DB_NAME", "mailu")
+DB_USER = os.getenv("DB_USER", "mailu")
 
 S3_BUCKET = os.getenv("S3_BUCKET", "")
 S3_PREFIX = os.getenv("S3_PREFIX", "mailu-backups")
@@ -52,45 +58,10 @@ S3_REGION = os.getenv("S3_REGION", "sa-east-1")
 
 RUN_ON_STARTUP = os.getenv("RUN_ON_STARTUP", "false").lower() in ("true", "1", "yes")
 
-VOLUMES = [
-    "mail",
-    "data",
-    "dkim",
-    "certs",
-    "webmail",
-    "filter",
-    "redis",
-    "pgdata",
-]
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    log.debug("Running: %s", " ".join(cmd))
-    return subprocess.run(cmd, capture_output=True, text=True, check=check)
-
-
-def detect_compose_project() -> str:
-    if COMPOSE_PROJECT:
-        return COMPOSE_PROJECT
-    result = run(
-        ["docker", "ps", "--format", "{{.Labels}}", "--filter", "label=com.docker.compose.project"],
-        check=False,
-    )
-    for line in result.stdout.splitlines():
-        for label in line.split(","):
-            if "com.docker.compose.project=" in label:
-                return label.split("=", 1)[1]
-    return "mailu"
-
-
-def volume_exists(volume_name: str) -> bool:
-    result = run(["docker", "volume", "inspect", volume_name], check=False)
-    return result.returncode == 0
 
 
 def sizeof_fmt(num: float) -> str:
@@ -102,29 +73,21 @@ def sizeof_fmt(num: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Backup volume
+# Backup volume (direct from mounted path)
 # ---------------------------------------------------------------------------
 
 
-def backup_volume(volume_name: str, dest_dir: Path) -> Path | None:
-    if not volume_exists(volume_name):
-        log.warning("Volume %s not found, skipping", volume_name)
+def backup_volume(name: str, dest_dir: Path) -> Path | None:
+    source = SOURCES_DIR / name
+    if not source.exists():
+        log.warning("Source %s not found, skipping", source)
         return None
 
-    archive = dest_dir / f"{volume_name}.tar.gz"
-    log.info("Backing up volume: %s", volume_name)
+    archive = dest_dir / f"{name}.tar.gz"
+    log.info("Backing up: %s", name)
 
-    result = run([
-        "docker", "run", "--rm",
-        "-v", f"{volume_name}:/source:ro",
-        "-v", f"{dest_dir}:/backup",
-        "alpine",
-        "tar", "czf", f"/backup/{volume_name}.tar.gz", "-C", "/source", ".",
-    ], check=False)
-
-    if result.returncode != 0:
-        log.error("Failed to backup %s: %s", volume_name, result.stderr)
-        return None
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(str(source), arcname=".")
 
     size = sizeof_fmt(archive.stat().st_size)
     log.info("  -> %s (%s)", archive.name, size)
@@ -132,37 +95,27 @@ def backup_volume(volume_name: str, dest_dir: Path) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
-# Database dump
+# Database dump (pg_dump via network)
 # ---------------------------------------------------------------------------
 
 
-def dump_admin_db(project: str, dest_dir: Path) -> Path | None:
-    result = run(
-        ["docker", "ps", "-q", "--filter", f"name={project}.*database"],
-        check=False,
+def dump_database(dest_dir: Path) -> Path | None:
+    dump_file = dest_dir / "database.sql"
+    log.info("Dumping PostgreSQL (%s@%s/%s)...", DB_USER, DB_HOST, DB_NAME)
+
+    result = subprocess.run(
+        ["pg_dump", "-h", DB_HOST, "-U", DB_USER, "-d", DB_NAME],
+        capture_output=True, text=True, check=False,
+        env={**os.environ, "PGPASSWORD": os.getenv("DB_PW", "")},
     )
-    container_id = result.stdout.strip().split("\n")[0]
-    if not container_id:
-        log.warning("Database container not found, skipping DB dump")
-        return None
 
-    dump_file = dest_dir / "admin_db.sql"
-    log.info("Dumping PostgreSQL database...")
-
-    db_name = os.getenv("DB_NAME", "mailu")
-    db_user = os.getenv("DB_USER", "mailu")
-
-    result = run(
-        ["docker", "exec", container_id, "pg_dump", "-U", db_user, db_name],
-        check=False,
-    )
     if result.returncode != 0:
-        log.warning("Could not dump admin DB: %s", result.stderr)
+        log.error("pg_dump failed: %s", result.stderr)
         return None
 
     dump_file.write_text(result.stdout)
     size = sizeof_fmt(dump_file.stat().st_size)
-    log.info("  -> admin_db.sql (%s)", size)
+    log.info("  -> database.sql (%s)", size)
     return dump_file
 
 
@@ -197,7 +150,6 @@ def upload_to_s3(archive_path: Path) -> bool:
         ExtraArgs={"StorageClass": S3_STORAGE_CLASS},
     )
 
-    # Verify
     response = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
     remote_size = response["ContentLength"]
 
@@ -269,26 +221,26 @@ def cleanup_local() -> None:
 # ---------------------------------------------------------------------------
 
 
+VOLUME_NAMES = ["mail", "data", "dkim", "certs", "webmail", "filter", "redis"]
+
+
 def run_backup() -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     work_dir = BACKUP_DIR / timestamp
-    project = detect_compose_project()
 
     log.info("=" * 50)
     log.info("Backup started at %s", timestamp)
-    log.info("Compose project: %s", project)
     log.info("=" * 50)
 
     try:
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. Backup volumes
-        for vol in VOLUMES:
-            full_vol = f"{project}_{vol}"
-            backup_volume(full_vol, work_dir)
+        # 1. Backup mounted volumes
+        for name in VOLUME_NAMES:
+            backup_volume(name, work_dir)
 
-        # 2. Dump admin DB
-        dump_admin_db(project, work_dir)
+        # 2. Dump PostgreSQL
+        dump_database(work_dir)
 
         # 3. Create final archive
         archive_name = f"mailu_backup_{timestamp}.tar.gz"
@@ -316,7 +268,6 @@ def run_backup() -> None:
         log.exception("Backup failed!")
 
     finally:
-        # Remove temp work dir
         if work_dir.exists():
             shutil.rmtree(work_dir, ignore_errors=True)
 

@@ -4,15 +4,12 @@ Mailu Interactive Restore
 Execute via SSH:
     docker compose exec backup python restore_interactive.py
 
-Or directly:
-    docker compose run --rm backup python restore_interactive.py
-
 Lists local and S3 backups, lets you pick one, and restores it.
 
 Environment variables (same as backup_worker.py):
     S3_BUCKET, S3_PREFIX, S3_REGION
     AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-    COMPOSE_PROJECT
+    DB_HOST, DB_NAME, DB_USER, DB_PW
 """
 
 import os
@@ -23,7 +20,6 @@ import sys
 import tarfile
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -31,12 +27,18 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 BACKUP_DIR = Path(os.getenv("BACKUP_DIR", "/backups"))
+SOURCES_DIR = Path("/sources")
+
 S3_BUCKET = os.getenv("S3_BUCKET", "")
 S3_PREFIX = os.getenv("S3_PREFIX", "mailu-backups")
 S3_REGION = os.getenv("S3_REGION", "sa-east-1")
-COMPOSE_PROJECT = os.getenv("COMPOSE_PROJECT", "")
 
-VOLUMES = ["mail", "data", "dkim", "certs", "webmail", "filter", "redis"]
+DB_HOST = os.getenv("DB_HOST", "database")
+DB_NAME = os.getenv("DB_NAME", "mailu")
+DB_USER = os.getenv("DB_USER", "mailu")
+DB_PW = os.getenv("DB_PW", "")
+
+VOLUME_NAMES = ["mail", "data", "dkim", "certs", "webmail", "filter", "redis"]
 TIMESTAMP_RE = re.compile(r"(\d{8})_(\d{6})")
 
 # ---------------------------------------------------------------------------
@@ -74,8 +76,8 @@ def header(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True, check=check)
+def run(cmd: list[str], check: bool = True, **kwargs) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, capture_output=True, text=True, check=check, **kwargs)
 
 
 def sizeof_fmt(num: float) -> str:
@@ -94,9 +96,7 @@ def parse_date(filename: str) -> str:
     return f"{d[:4]}-{d[4:6]}-{d[6:8]} {t[:2]}:{t[2:4]}:{t[4:6]}"
 
 
-def detect_compose_project() -> str:
-    if COMPOSE_PROJECT:
-        return COMPOSE_PROJECT
+def find_compose_project() -> str:
     result = run(
         ["docker", "ps", "--format", "{{.Labels}}", "--filter", "label=com.docker.compose.project"],
         check=False,
@@ -303,12 +303,113 @@ def confirm(msg: str) -> bool:
     return answer == "sim"
 
 
+def stop_mailu_services(project: str) -> list[str]:
+    """Stop all Mailu containers except the backup container. Returns container IDs."""
+    result = run(
+        ["docker", "ps", "--format", "{{.ID}} {{.Names}}", "--filter", f"label=com.docker.compose.project={project}"],
+        check=False,
+    )
+    containers = []
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+        cid, name = line.split(None, 1)
+        if "backup" not in name:
+            containers.append(cid)
+
+    if containers:
+        info(f"Parando {len(containers)} container(s)...")
+        run(["docker", "stop"] + containers, check=False)
+    else:
+        warn("Nenhum container Mailu encontrado para parar")
+
+    return containers
+
+
+def restore_volumes(backup_path: str) -> tuple[int, int]:
+    """Restore volumes by copying directly to mounted paths."""
+    restored = 0
+    skipped = 0
+
+    for vol in VOLUME_NAMES:
+        tarfile_path = os.path.join(backup_path, f"{vol}.tar.gz")
+        target = SOURCES_DIR / vol
+
+        if not os.path.exists(tarfile_path):
+            warn(f"SKIP: {vol}.tar.gz nao encontrado no backup")
+            skipped += 1
+            continue
+
+        if not target.exists():
+            warn(f"SKIP: {vol} nao montado em {target}")
+            skipped += 1
+            continue
+
+        info(f"Restaurando: {vol}")
+
+        # Clear target and extract
+        for item in target.iterdir():
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+
+        with tarfile.open(tarfile_path, "r:gz") as tar:
+            tar.extractall(str(target))
+
+        info(f"  -> {vol} restaurado")
+        restored += 1
+
+    return restored, skipped
+
+
+def restore_database(backup_path: str) -> None:
+    """Restore PostgreSQL database from SQL dump."""
+    dump_file = os.path.join(backup_path, "database.sql")
+
+    # Fallback to old name from previous backup format
+    if not os.path.exists(dump_file):
+        dump_file = os.path.join(backup_path, "admin_db.sql")
+
+    if not os.path.exists(dump_file):
+        warn("Dump do banco nao encontrado no backup, pulando restore do DB")
+        return
+
+    info(f"Restaurando PostgreSQL ({DB_HOST}/{DB_NAME})...")
+
+    env = {**os.environ, "PGPASSWORD": DB_PW}
+
+    # Drop and recreate database
+    run(
+        ["psql", "-h", DB_HOST, "-U", DB_USER, "-d", "postgres",
+         "-c", f"DROP DATABASE IF EXISTS {DB_NAME};"],
+        check=False, env=env,
+    )
+    run(
+        ["psql", "-h", DB_HOST, "-U", DB_USER, "-d", "postgres",
+         "-c", f"CREATE DATABASE {DB_NAME} OWNER {DB_USER};"],
+        check=False, env=env,
+    )
+
+    # Restore dump
+    with open(dump_file, "r") as f:
+        result = subprocess.run(
+            ["psql", "-h", DB_HOST, "-U", DB_USER, "-d", DB_NAME],
+            stdin=f, capture_output=True, text=True, check=False, env=env,
+        )
+
+    if result.returncode != 0:
+        error(f"Erro no restore do banco: {result.stderr[:500]}")
+    else:
+        info("  -> Banco restaurado")
+
+
 def restore(archive: str, temp_dir: str) -> None:
     if not confirm("Isso vai PARAR o Mailu e SOBRESCREVER todos os dados atuais."):
         print("Operacao cancelada.")
         sys.exit(0)
 
-    project = detect_compose_project()
+    project = find_compose_project()
     extract_dir = os.path.join(temp_dir, "extracted")
     os.makedirs(extract_dir, exist_ok=True)
 
@@ -316,69 +417,26 @@ def restore(archive: str, temp_dir: str) -> None:
     with tarfile.open(archive, "r:gz") as tar:
         tar.extractall(extract_dir)
 
-    # Find the backup subdirectory
     backup_subdir = os.listdir(extract_dir)[0]
     backup_path = os.path.join(extract_dir, backup_subdir)
 
+    # 1. Stop services
     header("Parando Mailu")
-    # Stop all services except this backup container
-    result = run(
-        ["docker", "ps", "--format", "{{.ID}} {{.Names}}", "--filter", f"label=com.docker.compose.project={project}"],
-        check=False,
-    )
-    containers_to_stop = []
-    for line in result.stdout.strip().splitlines():
-        if not line:
-            continue
-        cid, name = line.split(None, 1)
-        if "backup" not in name:
-            containers_to_stop.append(cid)
+    containers = stop_mailu_services(project)
 
-    if containers_to_stop:
-        info(f"Parando {len(containers_to_stop)} container(s)...")
-        run(["docker", "stop"] + containers_to_stop, check=False)
-    else:
-        warn("Nenhum container Mailu encontrado para parar")
-
+    # 2. Restore volumes
     header("Restaurando Volumes")
+    restored, skipped = restore_volumes(backup_path)
 
-    restored = 0
-    skipped = 0
+    # 3. Restore database
+    header("Restaurando Banco de Dados")
+    restore_database(backup_path)
 
-    for vol in VOLUMES:
-        full_vol = f"{project}_{vol}"
-        tarfile_path = os.path.join(backup_path, f"{vol}.tar.gz")
-
-        if not os.path.exists(tarfile_path):
-            warn(f"SKIP: {vol}.tar.gz nao encontrado no backup")
-            skipped += 1
-            continue
-
-        info(f"Restaurando: {vol}")
-
-        run(["docker", "volume", "create", full_vol], check=False)
-
-        run([
-            "docker", "run", "--rm",
-            "-v", f"{full_vol}:/target",
-            "-v", f"{backup_path}:/backup:ro",
-            "alpine",
-            "sh", "-c",
-            f"rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null; tar xzf /backup/{vol}.tar.gz -C /target",
-        ])
-
-        info(f"  -> {vol} restaurado")
-        restored += 1
-
-    # Check for SQL dump
-    sql_dump = os.path.join(backup_path, "admin_db.sql")
-    if os.path.exists(sql_dump):
-        info("Dump SQL do admin encontrado no backup")
-
+    # 4. Start services
     header("Iniciando Mailu")
-    if containers_to_stop:
-        info(f"Iniciando {len(containers_to_stop)} container(s)...")
-        run(["docker", "start"] + containers_to_stop, check=False)
+    if containers:
+        info(f"Iniciando {len(containers)} container(s)...")
+        run(["docker", "start"] + containers, check=False)
 
     header("Resultado")
     print(f"  Volumes restaurados: {C.GREEN}{restored}{C.NC}")
@@ -402,7 +460,6 @@ def main() -> None:
     print(f"{C.BOLD}  Mailu - Restore Interativo{C.NC}")
     print(f"{C.BOLD}============================================{C.NC}")
 
-    # Collect backups
     local = list_local_backups()
     local_names = {b.name for b in local}
     remote = list_s3_backups(exclude=local_names)

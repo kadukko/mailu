@@ -189,7 +189,6 @@ services:
       - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-02:00}
       - BACKUP_DIR=/backups
       - BACKUP_RETENTION=${BACKUP_RETENTION:-30}
-      - COMPOSE_PROJECT=${COMPOSE_PROJECT:-}
       - S3_BUCKET=${S3_BUCKET:-}
       - S3_PREFIX=${S3_PREFIX:-mailu-backups}
       - S3_STORAGE_CLASS=${S3_STORAGE_CLASS:-STANDARD_IA}
@@ -199,12 +198,22 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - RUN_ON_STARTUP=${RUN_ON_STARTUP:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DB_HOST=database
       - DB_NAME=${DB_NAME:-mailu}
       - DB_USER=${DB_USER:-mailu}
+      - DB_PW=${DB_PW:-mailupass}
     volumes:
       - backups:/backups
+      - mail:/sources/mail
+      - data:/sources/data
+      - dkim:/sources/dkim
+      - certs:/sources/certs
+      - webmail:/sources/webmail
+      - filter:/sources/filter
+      - redis:/sources/redis
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
+      - database
       - admin
       - redis
 

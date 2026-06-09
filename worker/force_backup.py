@@ -14,6 +14,4 @@ logging.basicConfig(
 from backup_worker import run_backup, BACKUP_DIR
 
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-
-print("Forcing backup now...")
 run_backup()
