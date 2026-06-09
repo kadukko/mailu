@@ -5,9 +5,9 @@ services:
     image: ghcr.io/mailu/nginx:2024.06
     restart: always
     environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - DOMAIN=${DOMAIN}
-      - HOSTNAMES=${HOSTNAMES}
+      - SECRET_KEY=${SECRET_KEY:-changeMe}
+      - DOMAIN=${DOMAIN:-example.com}
+      - HOSTNAMES=${HOSTNAMES:-mail.example.com}
       - POSTMASTER=${POSTMASTER:-admin}
       - RECIPIENT_DELIMITER=${RECIPIENT_DELIMITER:-+}
       - DKIM_SELECTOR=${DKIM_SELECTOR:-dkim}
@@ -22,7 +22,7 @@ services:
       - ADMIN=${ADMIN:-true}
       - WEBMAIL=${WEBMAIL:-roundcube}
       - SITENAME=${SITENAME:-Mailu}
-      - WEBSITE=${WEBSITE}
+      - WEBSITE=${WEBSITE:-https://mail.example.com}
       - AUTH_RATELIMIT_IP=${AUTH_RATELIMIT_IP:-60/hour}
       - AUTH_RATELIMIT_USER=${AUTH_RATELIMIT_USER:-100/day}
       - DISABLE_STATISTICS=${DISABLE_STATISTICS:-True}
@@ -63,9 +63,9 @@ services:
     image: ghcr.io/mailu/admin:2024.06
     restart: always
     environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - DOMAIN=${DOMAIN}
-      - HOSTNAMES=${HOSTNAMES}
+      - SECRET_KEY=${SECRET_KEY:-changeMe}
+      - DOMAIN=${DOMAIN:-example.com}
+      - HOSTNAMES=${HOSTNAMES:-mail.example.com}
       - POSTMASTER=${POSTMASTER:-admin}
       - RECIPIENT_DELIMITER=${RECIPIENT_DELIMITER:-+}
       - DKIM_SELECTOR=${DKIM_SELECTOR:-dkim}
@@ -78,7 +78,7 @@ services:
       - ADMIN=${ADMIN:-true}
       - WEBMAIL=${WEBMAIL:-roundcube}
       - SITENAME=${SITENAME:-Mailu}
-      - WEBSITE=${WEBSITE}
+      - WEBSITE=${WEBSITE:-https://mail.example.com}
       - AUTH_RATELIMIT_IP=${AUTH_RATELIMIT_IP:-60/hour}
       - AUTH_RATELIMIT_USER=${AUTH_RATELIMIT_USER:-100/day}
       - DISABLE_STATISTICS=${DISABLE_STATISTICS:-True}
@@ -97,9 +97,9 @@ services:
     image: ghcr.io/mailu/dovecot:2024.06
     restart: always
     environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - DOMAIN=${DOMAIN}
-      - HOSTNAMES=${HOSTNAMES}
+      - SECRET_KEY=${SECRET_KEY:-changeMe}
+      - DOMAIN=${DOMAIN:-example.com}
+      - HOSTNAMES=${HOSTNAMES:-mail.example.com}
       - POSTMASTER=${POSTMASTER:-admin}
       - RECIPIENT_DELIMITER=${RECIPIENT_DELIMITER:-+}
       - LOG_LEVEL=${LOG_LEVEL:-WARNING}
@@ -120,9 +120,9 @@ services:
     image: ghcr.io/mailu/postfix:2024.06
     restart: always
     environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - DOMAIN=${DOMAIN}
-      - HOSTNAMES=${HOSTNAMES}
+      - SECRET_KEY=${SECRET_KEY:-changeMe}
+      - DOMAIN=${DOMAIN:-example.com}
+      - HOSTNAMES=${HOSTNAMES:-mail.example.com}
       - POSTMASTER=${POSTMASTER:-admin}
       - RECIPIENT_DELIMITER=${RECIPIENT_DELIMITER:-+}
       - LOG_LEVEL=${LOG_LEVEL:-WARNING}
@@ -130,9 +130,9 @@ services:
       - MESSAGE_SIZE_LIMIT=${MESSAGE_SIZE_LIMIT:-50000000}
       - MESSAGE_RATELIMIT=${MESSAGE_RATELIMIT:-200/day}
       - RELAYNETS=${RELAYNETS:-}
-      - RELAYHOST=${RELAYHOST}
-      - RELAY_USER=${RELAY_USER}
-      - RELAY_PASSWORD=${RELAY_PASSWORD}
+      - RELAYHOST=${RELAYHOST:-}
+      - RELAY_USER=${RELAY_USER:-}
+      - RELAY_PASSWORD=${RELAY_PASSWORD:-}
       - FRONT_ADDRESS=front
       - ANTISPAM_ADDRESS=antispam
     volumes:
@@ -149,9 +149,9 @@ services:
     image: ghcr.io/mailu/rspamd:2024.06
     restart: always
     environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - DOMAIN=${DOMAIN}
-      - HOSTNAMES=${HOSTNAMES}
+      - SECRET_KEY=${SECRET_KEY:-changeMe}
+      - DOMAIN=${DOMAIN:-example.com}
+      - HOSTNAMES=${HOSTNAMES:-mail.example.com}
       - LOG_LEVEL=${LOG_LEVEL:-WARNING}
       - SUBNET=${SUBNET:-192.168.203.0/24}
       - ANTIVIRUS=${ANTIVIRUS:-none}
@@ -170,9 +170,9 @@ services:
     image: ghcr.io/mailu/webmail:2024.06
     restart: always
     environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - DOMAIN=${DOMAIN}
-      - HOSTNAMES=${HOSTNAMES}
+      - SECRET_KEY=${SECRET_KEY:-changeMe}
+      - DOMAIN=${DOMAIN:-example.com}
+      - HOSTNAMES=${HOSTNAMES:-mail.example.com}
       - LOG_LEVEL=${LOG_LEVEL:-WARNING}
       - SUBNET=${SUBNET:-192.168.203.0/24}
       - WEB_WEBMAIL=${WEB_WEBMAIL:-/webmail}
@@ -199,9 +199,9 @@ services:
     image: ghcr.io/mailu/fetchmail:2024.06
     restart: always
     environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - DOMAIN=${DOMAIN}
-      - HOSTNAMES=${HOSTNAMES}
+      - SECRET_KEY=${SECRET_KEY:-changeMe}
+      - DOMAIN=${DOMAIN:-example.com}
+      - HOSTNAMES=${HOSTNAMES:-mail.example.com}
       - LOG_LEVEL=${LOG_LEVEL:-WARNING}
       - FETCHMAIL_DELAY=${FETCHMAIL_DELAY:-600}
     volumes:
@@ -214,6 +214,31 @@ services:
     dns:
       - 192.168.203.254
 
+  # Backup worker
+  backup:
+    build: ./worker
+    restart: always
+    environment:
+      - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-02:00}
+      - BACKUP_DIR=/backups
+      - BACKUP_RETENTION=${BACKUP_RETENTION:-30}
+      - COMPOSE_PROJECT=${COMPOSE_PROJECT:-}
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_PREFIX=${S3_PREFIX:-mailu-backups}
+      - S3_STORAGE_CLASS=${S3_STORAGE_CLASS:-STANDARD_IA}
+      - S3_RETENTION_DAYS=${S3_RETENTION_DAYS:-90}
+      - S3_REGION=${S3_REGION:-sa-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - RUN_ON_STARTUP=${RUN_ON_STARTUP:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - backups:/backups
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - admin
+      - redis
+
 volumes:
   certs:
   data:
@@ -223,6 +248,7 @@ volumes:
   filter:
   webmail:
   redis:
+  backups:
   overrides_nginx:
   overrides_dovecot:
   overrides_postfix:

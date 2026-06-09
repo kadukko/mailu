@@ -7,22 +7,32 @@ Servidor de e-mail self-hosted com suporte a multi-dominio, webmail, anti-spam, 
 | Arquivo | Descricao |
 |---|---|
 | `docker-compose.yml` | Stack completa (Postfix, Dovecot, Rspamd, Roundcube, etc.) |
-| `mailu.env` | Configuracao principal do Mailu |
-| `setup.sh` | Script de setup inicial (gera SECRET_KEY) |
-| `backup.sh` | Backup local + upload para S3 |
-| `restore.sh` | Restauracao a partir de arquivo local ou S3 |
-| `install-cron.sh` | Instala backup automatico via cron |
-| `backup.env` | Variaveis de ambiente do backup (criado pelo install-cron.sh) |
 | `.env.example` | Exemplo de variaveis de ambiente para o deploy |
+| `worker/` | Worker Python de backup automatico e restore interativo |
 
 ## Quick start
 
 ```bash
-chmod +x setup.sh backup.sh restore.sh install-cron.sh
-./setup.sh
-nano mailu.env                # configurar dominio e credenciais SES
+# 1. Copiar e preencher variaveis de ambiente
+cp .env.example .env
+nano .env
+
+# 2. Subir a stack
 docker compose up -d
+
+# 3. Criar usuario admin
 docker compose exec admin flask mailu admin admin seudominio.com SENHA
+```
+
+## Backup e Restore
+
+```bash
+# Backup roda automaticamente (container backup, default 2h)
+# Ver logs do backup:
+docker compose logs -f backup
+
+# Restore interativo via SSH:
+docker compose exec backup python restore_interactive.py
 ```
 
 ## Documentacao
@@ -33,7 +43,7 @@ docker compose exec admin flask mailu admin admin seudominio.com SENHA
 | [DNS](docs/02-dns.md) | Registros A, MX, SPF, DKIM, DMARC, rDNS |
 | [AWS SES](docs/03-aws-ses.md) | Configurar envio de e-mail via SES (relay SMTP) |
 | [AWS S3](docs/04-aws-s3.md) | Configurar bucket S3 para backup (IAM, policy, CLI) |
-| [Backup](docs/05-backup.md) | Backup manual, automatico (cron) e restauracao |
+| [Backup](docs/05-backup.md) | Backup automatico e restauracao |
 | [Custos](docs/06-custos.md) | Estimativa de custos AWS (SES + S3) |
 | [Troubleshooting](docs/07-troubleshooting.md) | Problemas comuns e solucoes |
 | [Easypanel](docs/08-easypanel.md) | Deploy completo no Easypanel passo a passo |
