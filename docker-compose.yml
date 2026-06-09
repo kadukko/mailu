@@ -18,7 +18,12 @@ x-mailu-env: &mailu-env
   - AUTH_RATELIMIT_IP=${AUTH_RATELIMIT_IP:-60/hour}
   - AUTH_RATELIMIT_USER=${AUTH_RATELIMIT_USER:-100/day}
   - DISABLE_STATISTICS=${DISABLE_STATISTICS:-True}
-  - DB_FLAVOR=${DB_FLAVOR:-sqlite}
+  - DB_FLAVOR=postgresql
+  - DB_HOST=database
+  - DB_PORT=5432
+  - DB_NAME=${DB_NAME:-mailu}
+  - DB_USER=${DB_USER:-mailu}
+  - DB_PW=${DB_PW:-mailupass}
   - MESSAGE_SIZE_LIMIT=${MESSAGE_SIZE_LIMIT:-50000000}
   - MESSAGE_RATELIMIT=${MESSAGE_RATELIMIT:-200/day}
   - ANTIVIRUS=${ANTIVIRUS:-none}
@@ -75,6 +80,19 @@ services:
       default:
         ipv4_address: 192.168.203.254
 
+  # PostgreSQL database
+  database:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      - POSTGRES_DB=${DB_NAME:-mailu}
+      - POSTGRES_USER=${DB_USER:-mailu}
+      - POSTGRES_PASSWORD=${DB_PW:-mailupass}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - default
+
   # Admin interface
   admin:
     image: ghcr.io/mailu/admin:2024.06
@@ -84,6 +102,7 @@ services:
       - data:/data
       - dkim:/dkim
     depends_on:
+      - database
       - redis
       - resolver
     dns: *mailu-dns
@@ -191,6 +210,7 @@ volumes:
   certs:
   data:
   dkim:
+  pgdata:
   mail:
   mailqueue:
   filter:
