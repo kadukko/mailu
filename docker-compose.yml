@@ -36,6 +36,17 @@ x-mailu-env: &mailu-env
   - ANTISPAM_ADDRESS=antispam
   - REAL_IP_HEADER=X-Forwarded-For
   - REAL_IP_FROM=172.0.0.0/8
+  - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-02:00}
+  - BACKUP_DIR=/backups
+  - BACKUP_RETENTION=${BACKUP_RETENTION:-30}
+  - S3_BUCKET=${S3_BUCKET:-}
+  - S3_PREFIX=${S3_PREFIX:-mailu-backups}
+  - S3_STORAGE_CLASS=${S3_STORAGE_CLASS:-STANDARD_IA}
+  - S3_RETENTION_DAYS=${S3_RETENTION_DAYS:-90}
+  - S3_REGION=${S3_REGION:-sa-east-1}
+  - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+  - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+  - RUN_ON_STARTUP=${RUN_ON_STARTUP:-false}
 
 x-mailu-dns: &mailu-dns
   - 192.168.203.254
@@ -185,23 +196,7 @@ services:
   backup:
     build: ./worker
     restart: always
-    environment:
-      - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-02:00}
-      - BACKUP_DIR=/backups
-      - BACKUP_RETENTION=${BACKUP_RETENTION:-30}
-      - S3_BUCKET=${S3_BUCKET}
-      - S3_PREFIX=${S3_PREFIX:-mailu-backups}
-      - S3_STORAGE_CLASS=${S3_STORAGE_CLASS:-STANDARD_IA}
-      - S3_RETENTION_DAYS=${S3_RETENTION_DAYS:-90}
-      - S3_REGION=${S3_REGION:-sa-east-1}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - RUN_ON_STARTUP=${RUN_ON_STARTUP:-false}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - DB_HOST=database
-      - DB_NAME=${DB_NAME:-mailu}
-      - DB_USER=${DB_USER:-mailu}
-      - DB_PW=${DB_PW:-mailupass}
+    environment: *mailu-env
     volumes:
       - backups:/backups
       - mail:/sources/mail
