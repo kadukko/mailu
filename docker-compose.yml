@@ -39,13 +39,6 @@ x-mailu-env: &mailu-env
   - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-02:00}
   - BACKUP_DIR=/backups
   - BACKUP_RETENTION=${BACKUP_RETENTION:-30}
-  - S3_BUCKET=${S3_BUCKET:-}
-  - S3_PREFIX=${S3_PREFIX:-mailu-backups}
-  - S3_STORAGE_CLASS=${S3_STORAGE_CLASS:-STANDARD_IA}
-  - S3_RETENTION_DAYS=${S3_RETENTION_DAYS:-90}
-  - S3_REGION=${S3_REGION:-sa-east-1}
-  - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-  - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
   - RUN_ON_STARTUP=${RUN_ON_STARTUP:-false}
 
 x-mailu-dns: &mailu-dns
@@ -57,6 +50,7 @@ services:
   front:
     image: ghcr.io/mailu/nginx:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     labels:
       - "traefik.enable=true"
@@ -86,6 +80,7 @@ services:
   resolver:
     image: ghcr.io/mailu/unbound:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     networks:
       default:
@@ -95,6 +90,7 @@ services:
   database:
     image: postgres:16-alpine
     restart: always
+    env_file: .env
     environment:
       - POSTGRES_DB=${DB_NAME:-mailu}
       - POSTGRES_USER=${DB_USER:-mailu}
@@ -108,6 +104,7 @@ services:
   admin:
     image: ghcr.io/mailu/admin:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - data:/data
@@ -122,6 +119,7 @@ services:
   imap:
     image: ghcr.io/mailu/dovecot:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - mail:/mail
@@ -135,6 +133,7 @@ services:
   smtp:
     image: ghcr.io/mailu/postfix:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - mailqueue:/queue
@@ -148,6 +147,7 @@ services:
   antispam:
     image: ghcr.io/mailu/rspamd:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - filter:/var/lib/rspamd
@@ -162,6 +162,7 @@ services:
   webmail:
     image: ghcr.io/mailu/webmail:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - webmail:/data
@@ -175,6 +176,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    env_file: .env
     volumes:
       - redis:/data
 
@@ -182,6 +184,7 @@ services:
   fetchmail:
     image: ghcr.io/mailu/fetchmail:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - data:/data
@@ -196,6 +199,7 @@ services:
   backup:
     build: ./worker
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - backups:/backups
