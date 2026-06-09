@@ -199,6 +199,8 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - RUN_ON_STARTUP=${RUN_ON_STARTUP:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DB_NAME=${DB_NAME:-mailu}
+      - DB_USER=${DB_USER:-mailu}
     volumes:
       - backups:/backups
       - /var/run/docker.sock:/var/run/docker.sock:ro

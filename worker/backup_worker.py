@@ -60,6 +60,7 @@ VOLUMES = [
     "webmail",
     "filter",
     "redis",
+    "pgdata",
 ]
 
 
@@ -137,19 +138,22 @@ def backup_volume(volume_name: str, dest_dir: Path) -> Path | None:
 
 def dump_admin_db(project: str, dest_dir: Path) -> Path | None:
     result = run(
-        ["docker", "ps", "-q", "--filter", f"name={project}.*admin"],
+        ["docker", "ps", "-q", "--filter", f"name={project}.*database"],
         check=False,
     )
     container_id = result.stdout.strip().split("\n")[0]
     if not container_id:
-        log.warning("Admin container not found, skipping DB dump")
+        log.warning("Database container not found, skipping DB dump")
         return None
 
     dump_file = dest_dir / "admin_db.sql"
-    log.info("Dumping admin database...")
+    log.info("Dumping PostgreSQL database...")
+
+    db_name = os.getenv("DB_NAME", "mailu")
+    db_user = os.getenv("DB_USER", "mailu")
 
     result = run(
-        ["docker", "exec", container_id, "sqlite3", "/data/main.db", ".dump"],
+        ["docker", "exec", container_id, "pg_dump", "-U", db_user, db_name],
         check=False,
     )
     if result.returncode != 0:
