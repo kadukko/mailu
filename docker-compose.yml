@@ -16,18 +16,25 @@ services:
       - SUBNET=${SUBNET:-192.168.203.0/24}
       - BIND_ADDRESS4=0.0.0.0
       - BIND_ADDRESS6=::1
-      - TLS_FLAVOR=${TLS_FLAVOR:-mail}
+      - TLS_FLAVOR=${TLS_FLAVOR:-notls}
       - WEB_ADMIN=${WEB_ADMIN:-/admin}
       - WEB_WEBMAIL=${WEB_WEBMAIL:-/webmail}
       - ADMIN=${ADMIN:-true}
       - WEBMAIL=${WEBMAIL:-roundcube}
       - SITENAME=${SITENAME:-Mailu}
-      - WEBSITE=${WEBSITE:-https://mail.example.com}
+      - WEBSITE=https://${MAIL_HOSTNAME:-mail.example.com}
       - AUTH_RATELIMIT_IP=${AUTH_RATELIMIT_IP:-60/hour}
       - AUTH_RATELIMIT_USER=${AUTH_RATELIMIT_USER:-100/day}
       - DISABLE_STATISTICS=${DISABLE_STATISTICS:-True}
       - REAL_IP_HEADER=X-Forwarded-For
       - REAL_IP_FROM=172.0.0.0/8
+    labels:
+      - "traefik.enable=true"
+      # HTTPS - Admin + Webmail
+      - "traefik.http.routers.mailu-web.rule=Host(`${MAIL_HOSTNAME:-mail.example.com}`)"
+      - "traefik.http.routers.mailu-web.entrypoints=websecure"
+      - "traefik.http.routers.mailu-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.mailu-web.loadbalancer.server.port=80"
     ports:
       - "25:25"
       - "465:465"
@@ -38,6 +45,7 @@ services:
       - "993:993"
     networks:
       - default
+      - easypanel
     volumes:
       - certs:/certs
       - overrides_nginx:/overrides:ro
@@ -76,7 +84,7 @@ services:
       - ADMIN=${ADMIN:-true}
       - WEBMAIL=${WEBMAIL:-roundcube}
       - SITENAME=${SITENAME:-Mailu}
-      - WEBSITE=${WEBSITE:-https://mail.example.com}
+      - WEBSITE=https://${MAIL_HOSTNAME:-mail.example.com}
       - AUTH_RATELIMIT_IP=${AUTH_RATELIMIT_IP:-60/hour}
       - AUTH_RATELIMIT_USER=${AUTH_RATELIMIT_USER:-100/day}
       - DISABLE_STATISTICS=${DISABLE_STATISTICS:-True}
@@ -260,3 +268,5 @@ networks:
       driver: default
       config:
         - subnet: 192.168.203.0/24
+  easypanel:
+    external: true
