@@ -8,7 +8,7 @@ x-mailu-env: &mailu-env
   - DKIM_PATH=${DKIM_PATH:-/dkim/{domain}.{selector}.key}
   - LOG_LEVEL=${LOG_LEVEL:-WARNING}
   - SUBNET=${SUBNET:-192.168.203.0/24}
-  - TLS_FLAVOR=${TLS_FLAVOR:-mail}
+  - TLS_FLAVOR=${TLS_FLAVOR:-notls}
   - WEB_ADMIN=${WEB_ADMIN:-/admin}
   - WEB_WEBMAIL=${WEB_WEBMAIL:-/webmail}
   - ADMIN=${ADMIN:-true}
@@ -36,7 +36,10 @@ x-mailu-env: &mailu-env
   - ANTISPAM_ADDRESS=antispam
   - REAL_IP_HEADER=X-Forwarded-For
   - REAL_IP_FROM=172.0.0.0/8
-  - WEBROOT_REDIRECT=${WEBROOT_REDIRECT:-/webmail}
+  - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-02:00}
+  - BACKUP_DIR=/backups
+  - BACKUP_RETENTION=${BACKUP_RETENTION:-30}
+  - RUN_ON_STARTUP=${RUN_ON_STARTUP:-false}
 
 x-mailu-dns: &mailu-dns
   - 192.168.203.254
@@ -47,6 +50,7 @@ services:
   front:
     image: ghcr.io/mailu/nginx:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     labels:
       - "traefik.enable=true"
@@ -54,9 +58,6 @@ services:
       - "traefik.http.routers.mailu-web.entrypoints=websecure"
       - "traefik.http.routers.mailu-web.tls.certresolver=letsencrypt"
       - "traefik.http.services.mailu-web.loadbalancer.server.port=80"
-      - "traefik.http.middlewares.mailu-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
-      - "traefik.http.middlewares.mailu-headers.headers.customrequestheaders.X-Forwarded-Ssl=on"
-      - "traefik.http.routers.mailu-web.middlewares=mailu-headers"
     ports:
       - "25:25"
       - "465:465"
@@ -79,6 +80,7 @@ services:
   resolver:
     image: ghcr.io/mailu/unbound:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     networks:
       default:
@@ -88,6 +90,7 @@ services:
   database:
     image: postgres:16-alpine
     restart: always
+    env_file: .env
     environment:
       - POSTGRES_DB=${DB_NAME:-mailu}
       - POSTGRES_USER=${DB_USER:-mailu}
@@ -101,6 +104,7 @@ services:
   admin:
     image: ghcr.io/mailu/admin:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - data:/data
@@ -115,6 +119,7 @@ services:
   imap:
     image: ghcr.io/mailu/dovecot:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - mail:/mail
@@ -128,6 +133,7 @@ services:
   smtp:
     image: ghcr.io/mailu/postfix:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - mailqueue:/queue
@@ -141,6 +147,7 @@ services:
   antispam:
     image: ghcr.io/mailu/rspamd:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - filter:/var/lib/rspamd
@@ -155,6 +162,7 @@ services:
   webmail:
     image: ghcr.io/mailu/webmail:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - webmail:/data
@@ -168,6 +176,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    env_file: .env
     volumes:
       - redis:/data
 
@@ -175,6 +184,7 @@ services:
   fetchmail:
     image: ghcr.io/mailu/fetchmail:2024.06
     restart: always
+    env_file: .env
     environment: *mailu-env
     volumes:
       - data:/data
@@ -190,6 +200,7 @@ services:
     build: ./worker
     restart: always
     env_file: .env
+    environment: *mailu-env
     volumes:
       - backups:/backups
       - mail:/sources/mail
