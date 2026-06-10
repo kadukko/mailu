@@ -36,6 +36,7 @@ x-mailu-env: &mailu-env
   - ANTISPAM_ADDRESS=antispam
   - REAL_IP_HEADER=X-Forwarded-For
   - REAL_IP_FROM=172.0.0.0/8
+  - WEBROOT_REDIRECT=${WEBROOT_REDIRECT:-/webmail}
 
 x-mailu-dns: &mailu-dns
   - 192.168.203.254
